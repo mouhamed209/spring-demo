@@ -1,0 +1,28 @@
+# Ignore build output
+/target/
+
+# Eclipse/IntelliJ files
+/.classpath
+/.project
+/.settings/
+/.idea/
+*.iml
+
+# Maven wrapper
+/.mvn/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+
+# Docker
+docker-compose.override.yml
+
+# Keep the Dockerfile in the context
+!Dockerfile
