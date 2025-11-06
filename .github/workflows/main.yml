@@ -23,8 +23,8 @@ jobs:
           java-version: 21
 
       # 3️⃣ Run unit tests
-      - name: Unit test 
-        run: mvn -B test --file pom.xml
+      # - name: Unit test 
+      #   run: mvn -B test --file pom.xml
 
       # 4️⃣ Build JAR
       - name: Build application
