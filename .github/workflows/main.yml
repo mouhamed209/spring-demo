@@ -1,4 +1,4 @@
-name: Spring Boot CI/CD with Trivy and Grep
+name: Spring Boot CI/CD with Trivy
 
 on:
   push:
@@ -10,9 +10,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout code
+      # 1️⃣ Checkout repository
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       # 2️⃣ Setup JDK 21
       - name: Setup JDK 21
@@ -21,31 +21,53 @@ jobs:
           distribution: 'corretto'
           java-version: 21
 
-      # 3️⃣ Build JAR
+      # 3️⃣ Build Spring Boot JAR
       - name: Build application
         run: |
-          mvn -B clean package
+          mvn clean
+          mvn -B package --file pom.xml
 
-      # 4️⃣ Build LOCAL Docker image
+      # 4️⃣ Login Docker Hub
+      - name: Docker Hub login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      # 5️⃣ Build Docker image locally
       - name: Build Docker image
-        run: docker build -t ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:${{ github.sha }} .
-
-      # 5️⃣ Run Trivy using GitHub Action (scan local image)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: Dockerfile
+          push: false       # لا ندفع الآن
+          load: true
+          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:1.0.0
       - name: Run Trivy vulnerability scanner
-        id: trivy_scan
         uses: aquasecurity/trivy-action@0.33.1
         with:
-          image-ref: '${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:${{ github.sha }}'
-          format: 'json'
-          output: 'trivy.json'
+          image-ref: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:1.0.0
+          format: json
+          exit-code: '1'
           ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'  # ⚠ we continue even if vulnerabilities exist!
+          output: trivy.json
+          severity: HIGH,CRITICAL
+      # # 6️⃣ Install Trivy
+      # - name: Install Trivy
+      #   run: |
+      #     curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+      #     trivy --version
 
-      # 6️⃣ Check vulnerabilities using grep
+      # 7️⃣ Scan Docker image with Trivy (JSON)
+      - name: Scan Docker image
+        run: |
+          trivy image --format json --output trivy.json \
+            --severity HIGH,CRITICAL \
+            ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
+
+      # 8️⃣ Detect HIGH/CRITICAL vulnerabilities
       - name: Detect HIGH/CRITICAL vulnerabilities
-        id: detect_local
+        id: detect
         run: |
           if grep -q '"Severity":"HIGH"' trivy.json || grep -q '"Severity":"CRITICAL"' trivy.json; then
             echo "has_vuln=true" >> $GITHUB_OUTPUT
@@ -53,37 +75,24 @@ jobs:
             echo "has_vuln=false" >> $GITHUB_OUTPUT
           fi
 
-      # 7️⃣ Login to Docker Hub if vulnerabilities exist
-      - name: Docker Hub login
-        if: steps.detect_local.outputs.has_vuln == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-
-      # 8️⃣ Pull latest Docker Hub image
-      - name: Pull latest Docker Hub image
-        if: steps.detect_local.outputs.has_vuln == 'true'
+      # 9️⃣ Pull latest image if vulnerabilities exist
+      - name: Pull latest image
+        if: steps.detect.outputs.has_vuln == 'true'
         run: |
-          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest || echo "No latest image found"
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
 
-      # 9️⃣ Rescan pulled image (Trivy Action)
+      # 🔟 Rescan pulled image
       - name: Rescan pulled image
-        if: steps.detect_local.outputs.has_vuln == 'true'
+        if: steps.detect.outputs.has_vuln == 'true'
         id: trivy_rescan
-        uses: aquasecurity/trivy-action@0.33.1
-        with:
-          image-ref: '${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest'
-          format: 'json'
-          output: 'trivy-rescan.json'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-          exit-code: '0'
+        run: |
+          trivy image --format json --output trivy-rescan.json \
+            --severity HIGH,CRITICAL \
+            ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
 
-      # 🔟 Check if pulled image is clean
-      - name: Detect vulnerabilities in rescan
-        if: steps.detect_local.outputs.has_vuln == 'true'
+      # 1️⃣1️⃣ Detect if rescan image is clean
+      - name: Detect rescan result
+        if: steps.detect.outputs.has_vuln == 'true'
         id: detect_rescan
         run: |
           if ! grep -q '"Severity":"HIGH"' trivy-rescan.json && ! grep -q '"Severity":"CRITICAL"' trivy-rescan.json; then
@@ -92,20 +101,14 @@ jobs:
             echo "clean=false" >> $GITHUB_OUTPUT
           fi
 
-      # 1️⃣1️⃣ Push new image only if pulled version is clean
-      - name: Push new clean image
+      # 1️⃣2️⃣ Push image only if clean after rescan
+      - name: Push clean image
         if: steps.detect_rescan.outputs.clean == 'true'
         run: |
-          docker tag ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:${{ github.sha }} \
-                     ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
           docker push ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
 
-      # 1️⃣2️⃣ Push normally if NO vulnerabilities found originally
+      # 1️⃣3️⃣ Push image normally if no vulnerabilities initially
       - name: Push image (no vulnerabilities)
-        if: steps.detect_local.outputs.has_vuln != 'true'
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          file: Dockerfile
-          push: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
+        if: steps.detect.outputs.has_vuln != 'true'
+        run: |
+          docker push ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
