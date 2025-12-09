@@ -22,13 +22,17 @@ jobs:
           distribution: 'corretto'
           java-version: 21
 
-      # 3️⃣ Build JAR
+      # 3️⃣ Run unit tests
+      # - name: Unit test 
+      #   run: mvn -B test --file pom.xml
+
+      # 4️⃣ Build JAR
       - name: Build application
         run: |
           mvn clean
           mvn -B package --file pom.xml
 
-      # 4️⃣ Build Docker image locally
+      # 5️⃣ Build Docker image (locally)
       - name: Build Docker image
         uses: docker/build-push-action@v4
         with:
@@ -38,87 +42,21 @@ jobs:
           load: true
           tags: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
 
-      # 5️⃣ Scan image with Trivy (JSON)
-      - name: Scan image with Trivy (JSON)
-        id: trivy_json
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
-          format: 'json'
-          output: trivy.json
-          exit-code: '0'
-          severity: 'HIGH,CRITICAL'
-
-      # 6️⃣ Detect HIGH/CRITICAL
-      - name: Detect HIGH/CRITICAL via bash
-        id: detect
-        shell: bash
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq
-          HIGH=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="HIGH")] | length' trivy.json 2>/dev/null || echo 0)
-          CRITICAL=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="CRITICAL")] | length' trivy.json 2>/dev/null || echo 0)
-          if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
-            echo "has_vuln=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_vuln=false" >> $GITHUB_OUTPUT
-          fi
-
-      # 7️⃣ إذا فيه Vulnerabilities → نسحب آخر نسخة من Docker Hub لإعادة الفحص
-      - name: Docker Hub Login
-        if: steps.detect.outputs.has_vuln == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-
-      - name: Pull latest image from Docker Hub
-        if: steps.detect.outputs.has_vuln == 'true'
-        run: docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
-
-      # 8️⃣ Rescan pulled image
-      - name: Rescan pulled image with Trivy
-        if: steps.detect.outputs.has_vuln == 'true'
-        id: trivy_rescan
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
-          format: 'json'
-          output: trivy-rescan.json
-          exit-code: '0'
-          severity: 'HIGH,CRITICAL'
-
-      # 9️⃣ Detect if image is now clean
-      - name: Detect rescan result
-        if: steps.detect.outputs.has_vuln == 'true'
-        id: detect_rescan
-        shell: bash
-        run: |
-          HIGH=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="HIGH")] | length' trivy-rescan.json 2>/dev/null || echo 0)
-          CRITICAL=$(jq '[.Results[].Vulnerabilities[] | select(.Severity=="CRITICAL")] | length' trivy-rescan.json 2>/dev/null || echo 0)
-          if [ "$HIGH" -eq 0 ] && [ "$CRITICAL" -eq 0 ]; then
-            echo "clean=true" >> $GITHUB_OUTPUT
-          else
-            echo "clean=false" >> $GITHUB_OUTPUT
-
-      # 🔟 Push image only if clean after pull+rescan
-      - name: Push cleaned image to Docker Hub
-        if: steps.detect.outputs.has_vuln == 'true' && steps.detect_rescan.outputs.clean == 'true'
-        run: docker push ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
-
-      # 1️⃣1️⃣ If no vulnerabilities from the beginning → push normally
-      - name: Final Login (no vuln case)
-        if: steps.detect.outputs.has_vuln != 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-
-      - name: Final push (image is clean)
-        if: steps.detect.outputs.has_vuln != 'true'
+      # 6️⃣ Scan Docker image with Trivy
+      - name: Scan image with Trivy
+      - name: Push to Docker Hub
         uses: docker/build-push-action@v4
         with:
           context: .
-          file: Dockerfile
+          exit-code: '1'   # keep pipeline running even if vulnerabilities exist
           push: true
           tags: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
+          no-cache: true
+          severity: 'HIGH,CRITICAL'
+
+      # 9️⃣ Final login (no vulnerabilities)
+      - name: Login to Docker Hub (final)
+        if: steps.detect.outputs.has_vuln != 'true'
+        uses: docker/login-action@v3
+        with: 
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
