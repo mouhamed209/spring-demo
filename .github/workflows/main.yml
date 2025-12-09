@@ -1,4 +1,4 @@
-name: Spring Boot CI/CD with Trivy
+name: Spring Boot CI/CD with Trivy + Conditional Push
 
 on:
   push:
@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repository
-      - name: Checkout code
+      # 1️⃣ Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v3
 
       # 2️⃣ Setup JDK 21
@@ -40,25 +40,20 @@ jobs:
         with:
           context: .
           file: Dockerfile
-          push: false       # لا ندفع الآن
+          push: false
           load: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
+          tags: my-organization/spring-boot:latest
 
-      # 6️⃣ Install Trivy
-      - name: Install Trivy
+      # 6️⃣ Run Trivy scan locally
+      - name: Scan local Docker image
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-          trivy --version
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.41.0 image \
+          --format json --output trivy.json \
+          --severity HIGH,CRITICAL \
+          my-organization/spring-boot:latest
 
-      # 7️⃣ Scan Docker image with Trivy (JSON)
-      - name: Scan Docker image
-        run: |
-          trivy image --format json --output trivy.json \
-            --severity HIGH,CRITICAL \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
-
-      # 8️⃣ Detect HIGH/CRITICAL vulnerabilities
-      - name: Detect HIGH/CRITICAL vulnerabilities
+      # 7️⃣ Detect HIGH/CRITICAL using grep
+      - name: Detect vulnerabilities
         id: detect
         run: |
           if grep -q '"Severity":"HIGH"' trivy.json || grep -q '"Severity":"CRITICAL"' trivy.json; then
@@ -67,40 +62,38 @@ jobs:
             echo "has_vuln=false" >> $GITHUB_OUTPUT
           fi
 
-      # 9️⃣ Pull latest image if vulnerabilities exist
-      - name: Pull latest image
+      # 8️⃣ Pull latest image from Docker Hub if local image has vulnerabilities
+      - name: Pull latest Docker Hub image
         if: steps.detect.outputs.has_vuln == 'true'
         run: |
           docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
 
-      # 🔟 Rescan pulled image
+      # 9️⃣ Rescan pulled image
       - name: Rescan pulled image
         if: steps.detect.outputs.has_vuln == 'true'
-        id: trivy_rescan
+        id: rescan
         run: |
-          trivy image --format json --output trivy-rescan.json \
-            --severity HIGH,CRITICAL \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
-
-      # 1️⃣1️⃣ Detect if rescan image is clean
-      - name: Detect rescan result
-        if: steps.detect.outputs.has_vuln == 'true'
-        id: detect_rescan
-        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.41.0 image \
+          --format json --output trivy-rescan.json \
+          --severity HIGH,CRITICAL \
+          ${{ secrets.DOCKER_HUB_USERNAME }}/my-app:latest
+          
           if ! grep -q '"Severity":"HIGH"' trivy-rescan.json && ! grep -q '"Severity":"CRITICAL"' trivy-rescan.json; then
             echo "clean=true" >> $GITHUB_OUTPUT
           else
             echo "clean=false" >> $GITHUB_OUTPUT
           fi
 
-      # 1️⃣2️⃣ Push image only if clean after rescan
-      - name: Push clean image
-        if: steps.detect_rescan.outputs.clean == 'true'
+      # 🔟 Push new image only if latest image from Docker Hub is clean
+      - name: Push updated image
+        if: steps.rescan.outputs.clean == 'true'
         run: |
+          docker tag my-organization/spring-boot:latest ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
           docker push ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
 
-      # 1️⃣3️⃣ Push image normally if no vulnerabilities initially
+      # 1️⃣1️⃣ Push image normally if no vulnerabilities locally
       - name: Push image (no vulnerabilities)
         if: steps.detect.outputs.has_vuln != 'true'
         run: |
+          docker tag my-organization/spring-boot:latest ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
           docker push ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
