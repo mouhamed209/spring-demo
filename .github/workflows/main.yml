@@ -47,10 +47,10 @@ jobs:
         uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:1.0.0
-          format: json
+          format: table
           exit-code: '1'
           ignore-unfixed: true
-          output: trivy.json
+          # output: trivy.json
           severity: HIGH,CRITICAL
       # # 6️⃣ Install Trivy
       # - name: Install Trivy
