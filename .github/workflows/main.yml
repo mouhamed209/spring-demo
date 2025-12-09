@@ -36,7 +36,7 @@ jobs:
           file: Dockerfile
           push: false
           load: true
-          tags: ${{ secrets.DOCKER_H_HUB_USERNAME }}/spring-boot:latest
+          tags: ${{ secrets.DOCKER_H_HUB_USERNAME }}/spring-boot:1.0.0
 
       # 5️⃣ Scan Docker image with Trivy
       - name: Scan image with Trivy
