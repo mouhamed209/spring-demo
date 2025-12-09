@@ -47,10 +47,10 @@ jobs:
         uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:1.0.0
-          format: table
-          exit-code: '1'
+          format: json
+          exit-code: '0'
           ignore-unfixed: true
-          # output: trivy.json
+          output: trivy.json
           severity: HIGH,CRITICAL
       # # 6️⃣ Install Trivy
       # - name: Install Trivy
@@ -59,11 +59,7 @@ jobs:
       #     trivy --version
 
       # 7️⃣ Scan Docker image with Trivy (JSON)
-      - name: Scan Docker image
-        run: |
-          trivy image --format json --output trivy.json \
-            --severity HIGH,CRITICAL \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
+    
 
       # 8️⃣ Detect HIGH/CRITICAL vulnerabilities
       - name: Detect HIGH/CRITICAL vulnerabilities
