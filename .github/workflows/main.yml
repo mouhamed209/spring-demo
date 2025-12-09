@@ -58,16 +58,7 @@ jobs:
             echo "has_vuln=true" >> $GITHUB_OUTPUT
           else
             echo "has_vuln=false" >> $GITHUB_OUTPUT
-            ---
-  
-      - name: Detect HIGH/CRITICAL vulnerabilities
-        id: detect
-        run: |
-          if grep -q '"Severity":"HIGH"' trivy.json || grep -q '"Severity":"CRITICAL"' trivy.json; then
-            echo "has_vuln=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_vuln=false" >> $GITHUB_OUTPUT
-          fi  
+          fi
 
       # 8️⃣ Login Docker Hub if vulnerabilities exist
       - name: Docker Hub login
@@ -101,6 +92,7 @@ jobs:
             echo "clean=true" >> $GITHUB_OUTPUT
           else
             echo "clean=false" >> $GITHUB_OUTPUT
+          fi
 
       # 1️⃣2️⃣ Push image only if clean
       - name: Push clean image
