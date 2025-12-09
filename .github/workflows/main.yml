@@ -22,17 +22,13 @@ jobs:
           distribution: 'corretto'
           java-version: 21
 
-      # 3️⃣ Run unit tests
-      # - name: Unit test 
-      #   run: mvn -B test --file pom.xml
-
-      # 4️⃣ Build JAR
+      # 3️⃣ Build JAR
       - name: Build application
         run: |
           mvn clean
           mvn -B package --file pom.xml
 
-      # 5️⃣ Build Docker image (locally)
+      # 4️⃣ Build Docker image (locally)
       - name: Build Docker image
         uses: docker/build-push-action@v4
         with:
@@ -40,23 +36,30 @@ jobs:
           file: Dockerfile
           push: false
           load: true
-          tags: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
+          tags: ${{ secrets.DOCKER_H_HUB_USERNAME }}/spring-boot:latest
 
-      # 6️⃣ Scan Docker image with Trivy
+      # 5️⃣ Scan Docker image with Trivy
       - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: 1
+
+      # 6️⃣ Push to Docker Hub
       - name: Push to Docker Hub
         uses: docker/build-push-action@v4
         with:
           context: .
-          exit-code: '1'   # keep pipeline running even if vulnerabilities exist
+          file: Dockerfile
           push: true
           tags: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:latest
           no-cache: true
-          severity: 'HIGH,CRITICAL'
 
-      # 9️⃣ Final login (no vulnerabilities)
+      # 7️⃣ Final login (optional)
       - name: Login to Docker Hub (final)
-        if: steps.detect.outputs.has_vuln != 'true'
         uses: docker/login-action@v3
         with: 
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
