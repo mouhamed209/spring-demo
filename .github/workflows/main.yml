@@ -32,11 +32,11 @@ jobs:
       - name: Build Docker image
         uses: docker/build-push-action@v4
         with:
-          context: .
-          file: Dockerfile
-          push: false
-          load: true
-          tags: ${{ secrets.DOCKER_H_HUB_USERNAME }}/spring-boot:1.0.0
+         context: .
+         file: Dockerfile
+         push: false
+         load: true
+         tags: ${{ secrets.DOCKER_HUB_USERNAME }}/spring-boot:1.0.0
 
       # 5️⃣ Scan Docker image with Trivy
       - name: Scan image with Trivy
