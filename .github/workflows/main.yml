@@ -71,6 +71,18 @@ jobs:
             echo "has_vuln=false" >> $GITHUB_OUTPUT
           fi
 
+
+      - name: Detect HIGH/CRITICAL vulnerabilities
+        id: detect
+        run: |
+            has_vuln=$(jq '[.. | .Severity?] | map(select(.=="HIGH" or .=="CRITICAL")) | length > 0' trivy.json)
+
+            if [ "$has_vuln" = "true" ]; then
+               echo "has_vuln=true" >> $GITHUB_OUTPUT
+            else
+               echo "has_vuln=false" >> $GITHUB_OUTPUT
+            fi
+
       # 9️⃣ Pull latest image if vulnerabilities exist
       - name: Pull latest image
         if: steps.detect.outputs.has_vuln == 'true'
